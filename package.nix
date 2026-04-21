@@ -21,7 +21,7 @@ effectiveStdenv.mkDerivation rec {
     owner = "AmesianX";
     repo = "TurboQuant";
     rev = "v${version}";
-    hash = "sha256-1wdz5b7mpidma7ah52ryw0c07am0r76537hlivg12w847dbis3wq";
+    hash = "sha256-mA8dVzsEcRHejhSeUczJoKoDGOA+iwLVUbXFW88qv/E=";
   };
 
   nativeBuildInputs = with cudaPackages; [
@@ -70,7 +70,7 @@ effectiveStdenv.mkDerivation rec {
   '';
 
   meta = {
-    description = "llama.cpp with TurboQuant KV cache compression — Polar Derotate + Tangent Residual (v1.6.0)";
+    description = "llama.cpp with TurboQuant KV cache compression — TriAttention + Polar Derotate + Tangent Residual (v1.7.0)";
     homepage = "https://github.com/AmesianX/TurboQuant";
     license = lib.licenses.mit;
     platforms = lib.platforms.linux;
