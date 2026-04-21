@@ -2,7 +2,7 @@
   lib,
   autoAddDriverRunpath,
   cmake,
-  fetchurl,
+  fetchFromGitHub,
   cudaPackages,
   git,
   ninja,
@@ -15,14 +15,14 @@ let
 in
 effectiveStdenv.mkDerivation rec {
   pname = "llama-cpp-turboquant";
-  version = "unstable-2026-04-08";
+  version = "1.7.0";
 
-  src = fetchurl {
-    url = "https://github.com/spiritbuun/llama-cpp-turboquant-cuda/archive/refs/heads/master.tar.gz";
-    hash = "sha256-w5P7fKkX9CCyS834o0brYkKEBRigHCJxaMego5ituoU=";
+  src = fetchFromGitHub {
+    owner = "AmesianX";
+    repo = "TurboQuant";
+    rev = "v${version}";
+    hash = "sha256-1wdz5b7mpidma7ah52ryw0c07am0r76537hlivg12w847dbis3wq";
   };
-
-  sourceRoot = "buun-llama-cpp-master";
 
   nativeBuildInputs = with cudaPackages; [
     cmake
@@ -43,7 +43,6 @@ effectiveStdenv.mkDerivation rec {
     (cmakeBool "GGML_CUDA_F16" true)
     (cmakeBool "GGML_NATIVE" false)
     # CPU: all cluster nodes are x86-64-v2 (AVX2, no AVX512)
-    # Zen 3 (5950X), Zen 2 (3900X), Zen 1 (1700), Coffee Lake (i5-9500)
     (cmakeBool "GGML_AVX2" true)
     (cmakeBool "GGML_FMA" true)
     (cmakeBool "GGML_F16C" true)
@@ -71,8 +70,8 @@ effectiveStdenv.mkDerivation rec {
   '';
 
   meta = {
-    description = "llama.cpp fork with TurboQuant TCQ KV cache compression (CUDA)";
-    homepage = "https://github.com/spiritbuun/llama-cpp-turboquant-cuda";
+    description = "llama.cpp with TurboQuant KV cache compression — Polar Derotate + Tangent Residual (v1.6.0)";
+    homepage = "https://github.com/AmesianX/TurboQuant";
     license = lib.licenses.mit;
     platforms = lib.platforms.linux;
   };
