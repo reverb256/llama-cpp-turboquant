@@ -27,8 +27,10 @@ effectiveStdenv.mkDerivation rec {
   # TriAttention KV cache pruning (arXiv 2604.04921)
   # Patch from atomicmilkshake/llama-cpp-turboquant — adds GPU-accelerated
   # token eviction on top of spiritbuun's DFlash + TCQ + turbo stack.
-  # May require rebase if spiritbuun diverges significantly.
-  patches = [ ./triattention.patch ];
+  # Applied via postPatch because fetchpatch mangles large patches.
+  postPatch = ''
+    patch -p1 < ${./triattention.patch}
+  '';
 
   nativeBuildInputs = with cudaPackages; [
     cmake
@@ -61,10 +63,14 @@ effectiveStdenv.mkDerivation rec {
     (cmakeBool "GGML_AVX512" false)
     (cmakeBool "GGML_CUDA_FA" true)
     (cmakeBool "GGML_CUDA_FA_ALL_QUANTS" true)
+    # Static linking: all ggml/llama code baked into binary, no system libggml.so deps
+    # Prevents symbol conflicts with system ggml (missing spiritbuun quant symbols)
     (cmakeBool "BUILD_SHARED_LIBS" false)
     # RTX 3090 = sm_86 (pure Ampere), RTX 4070 Ti = sm_89 (Ada)
     (cmakeFeature "CMAKE_CUDA_ARCHITECTURES" "86")
     (cmakeFeature "CMAKE_BUILD_TYPE" "Release")
+    # Link ggml-cuda statically — avoids runtime symbol lookup from system libggml.so
+    (cmakeBool "GGML_CUDA_STATIC" true)
   ];
 
   installPhase = ''

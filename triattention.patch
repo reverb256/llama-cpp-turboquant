@@ -1,8 +1,8 @@
 diff --git a/common/arg.cpp b/common/arg.cpp
-index b6e4ae8f0..40b606314 100644
+index dccc8fd35..5c33b7f0d 100644
 --- a/common/arg.cpp
 +++ b/common/arg.cpp
-@@ -3859,6 +3859,106 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
+@@ -3951,6 +3951,106 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
          }
      ).set_examples({LLAMA_EXAMPLE_SERVER, LLAMA_EXAMPLE_CLI}));
  
@@ -110,10 +110,10 @@ index b6e4ae8f0..40b606314 100644
  }
  
 diff --git a/common/common.cpp b/common/common.cpp
-index 59d75a3b9..45d9c0bda 100644
+index 16f78debd..d32c7abfd 100644
 --- a/common/common.cpp
 +++ b/common/common.cpp
-@@ -1140,6 +1140,28 @@ common_init_result::common_init_result(common_params & params) :
+@@ -1236,6 +1236,28 @@ common_init_result::common_init_result(common_params & params) :
          return;
      }
  
@@ -143,9 +143,10 @@ index 59d75a3b9..45d9c0bda 100644
  }
  
 diff --git a/common/common.h b/common/common.h
+index 529bb41c6..b03af0927 100644
 --- a/common/common.h
 +++ b/common/common.h
-@@ -701,6 +701,21 @@
+@@ -700,6 +700,21 @@ struct common_params {
      // return false from callback to abort model loading or true to continue
      llama_progress_callback load_progress_callback = NULL;
      void *                  load_progress_callback_user_data = NULL;
@@ -754,10 +755,10 @@ index 22ad2c009..44da4f040 100644
  #endif
 diff --git a/ggml/src/ggml-cuda/triattention-score.cu b/ggml/src/ggml-cuda/triattention-score.cu
 new file mode 100644
-index 000000000..01f047604
+index 000000000..a3a5b15f6
 --- /dev/null
 +++ b/ggml/src/ggml-cuda/triattention-score.cu
-@@ -0,0 +1,542 @@
+@@ -0,0 +1,546 @@
 +/*
 + * TriAttention GPU scoring kernel implementation
 + *
@@ -774,7 +775,7 @@ index 000000000..01f047604
 +
 +#include "triattention-score.cuh"
 +#include "dequantize.cuh"
-+#include "turbo-quant.cuh"
++#include "turbo-quant-cuda.cuh"
 +
 +#include <cstdio>
 +#include <cstring>
@@ -831,16 +832,16 @@ index 000000000..01f047604
 +
 +static __device__ void inverse_wht_rotation_128(float * smem, int tid) {
 +    // Step 1: multiply by signs2
-+    smem[tid * 2]     *= TURBO_WHT_SIGNS2[tid * 2];
-+    smem[tid * 2 + 1] *= TURBO_WHT_SIGNS2[tid * 2 + 1];
++    smem[tid * 2]     *= d_turbo_wht_signs2[tid * 2];
++    smem[tid * 2 + 1] *= d_turbo_wht_signs2[tid * 2 + 1];
 +    __syncthreads();
 +
 +    // Step 2: FWHT (cooperative)
 +    cooperative_fwht_128(smem, tid);
 +
 +    // Step 3: multiply by signs1
-+    smem[tid * 2]     *= TURBO_WHT_SIGNS1[tid * 2];
-+    smem[tid * 2 + 1] *= TURBO_WHT_SIGNS1[tid * 2 + 1];
++    smem[tid * 2]     *= d_turbo_wht_signs1[tid * 2];
++    smem[tid * 2 + 1] *= d_turbo_wht_signs1[tid * 2 + 1];
 +    __syncthreads();
 +}
 +
@@ -882,8 +883,8 @@ index 000000000..01f047604
 +        const int blk = (tid * 2) / QK_TURBO4;
 +        const int off = (tid * 2) % QK_TURBO4;
 +        const float norm = __half2float(x[blk].norm);
-+        smem[tid * 2]     = turbo4_dequant_element(&x[blk], off,     norm);
-+        smem[tid * 2 + 1] = turbo4_dequant_element(&x[blk], off + 1, norm);
++        smem[tid * 2]     = d_turbo_centroids_4bit[(off & 1) ? (x[blk].qs[off / 2] >> 4) : (x[blk].qs[off / 2] & 0xF)] * norm;
++        smem[tid * 2 + 1] = d_turbo_centroids_4bit[((off+1) & 1) ? (x[blk].qs[(off+1) / 2] >> 4) : (x[blk].qs[(off+1) / 2] & 0xF)] * norm;
 +    } else if constexpr (K_TYPE == GGML_TYPE_TURBO3_0) {
 +        // turbo3: block_size=32, returns WHT-rotated values
 +        const block_turbo3_0 * x = (const block_turbo3_0 *)k_row_ptr;
@@ -893,8 +894,12 @@ index 000000000..01f047604
 +        const int blk1 = el1 / QK_TURBO3;
 +        const int off0 = el0 % QK_TURBO3;
 +        const int off1 = el1 % QK_TURBO3;
-+        smem[el0] = turbo3_dequant_element(&x[blk0], off0, __half2float(x[blk0].norm));
-+        smem[el1] = turbo3_dequant_element(&x[blk1], off1, __half2float(x[blk1].norm));
++        const uint8_t low2_0 = (x[blk0].qs[off0/4] >> ((off0%4)*2)) & 0x3;
++        const uint8_t hi1_0  = (x[blk0].signs[off0/8] >> (off0%8)) & 0x1;
++        smem[el0] = d_turbo_centroids_3bit[low2_0 | (hi1_0 << 2)] * __half2float(x[blk0].norm);
++        const uint8_t low2_1 = (x[blk1].qs[off1/4] >> ((off1%4)*2)) & 0x3;
++        const uint8_t hi1_1  = (x[blk1].signs[off1/8] >> (off1%8)) & 0x1;
++        smem[el1] = d_turbo_centroids_3bit[low2_1 | (hi1_1 << 2)] * __half2float(x[blk1].norm);
 +    } else if constexpr (K_TYPE == GGML_TYPE_TURBO2_0) {
 +        // turbo2: block_size=32, returns WHT-rotated values
 +        const block_turbo2_0 * x = (const block_turbo2_0 *)k_row_ptr;
@@ -904,8 +909,8 @@ index 000000000..01f047604
 +        const int blk1 = el1 / QK_TURBO2;
 +        const int off0 = el0 % QK_TURBO2;
 +        const int off1 = el1 % QK_TURBO2;
-+        smem[el0] = turbo2_dequant_element(&x[blk0], off0, __half2float(x[blk0].norm));
-+        smem[el1] = turbo2_dequant_element(&x[blk1], off1, __half2float(x[blk1].norm));
++        smem[el0] = d_turbo_centroids_2bit[(x[blk0].qs[off0/4] >> ((off0%4)*2)) & 0x3] * __half2float(x[blk0].norm);
++        smem[el1] = d_turbo_centroids_2bit[(x[blk1].qs[off1/4] >> ((off1%4)*2)) & 0x3] * __half2float(x[blk1].norm);
 +    }
 +}
 +
@@ -1326,10 +1331,10 @@ index 000000000..29b2e00f3
 +// Only the CUDA kernel implementation details are declared here.
 +
 diff --git a/include/llama.h b/include/llama.h
-index 60e4b6b2e..d22fa7a7c 100644
+index 266352efd..ba8af55b6 100644
 --- a/include/llama.h
 +++ b/include/llama.h
-@@ -768,6 +768,36 @@ extern "C" {
+@@ -787,6 +787,36 @@ extern "C" {
      // Check if the memory supports shifting
      LLAMA_API bool llama_memory_can_shift(llama_memory_t mem);
  
@@ -1367,7 +1372,7 @@ index 60e4b6b2e..d22fa7a7c 100644
      // State / sessions
      //
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index 283823fa9..33630b2bd 100644
+index 73baa15ab..6c6f50831 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
 @@ -23,6 +23,7 @@ add_library(llama
@@ -1378,8 +1383,10 @@ index 283823fa9..33630b2bd 100644
              llama-memory-hybrid.cpp
              llama-memory-hybrid-iswa.cpp
              llama-memory-recurrent.cpp
---- a/src/llama-context.cpp	1969-12-31 18:00:01.000000000 -0600
-+++ b/src/llama-context.cpp	2026-04-25 06:55:05.681725368 -0500
+diff --git a/src/llama-context.cpp b/src/llama-context.cpp
+index c419c70af..ec26ae77a 100644
+--- a/src/llama-context.cpp
++++ b/src/llama-context.cpp
 @@ -4,12 +4,14 @@
  #include "llama-impl.h"
  #include "llama-batch.h"
@@ -1395,7 +1402,7 @@ index 283823fa9..33630b2bd 100644
  
  #include "ggml-alloc.h"
  
-@@ -4527,6 +4529,56 @@
+@@ -4527,6 +4529,63 @@ bool llama_memory_can_shift(llama_memory_t mem) {
      return mem->get_can_shift();
  }
  
@@ -1427,6 +1434,13 @@ index 283823fa9..33630b2bd 100644
 +
 +    auto * kv = dynamic_cast<llama_kv_cache *>(mem);
 +    if (!kv) {
++        // Hybrid memory models (e.g. Qwen3.5) wrap llama_kv_cache inside llama_memory_hybrid
++        auto * mem_hybrid = dynamic_cast<llama_memory_hybrid *>(mem);
++        if (mem_hybrid) {
++            kv = mem_hybrid->get_mem_attn();
++        }
++    }
++    if (!kv) {
 +        LLAMA_LOG_ERROR("%s: memory is not a KV cache (recurrent models not supported)\n", __func__);
 +        return -1;
 +    }
@@ -1452,15 +1466,17 @@ index 283823fa9..33630b2bd 100644
  // llama state API
  
  // deprecated
---- a/src/llama-kv-cache.cpp	1969-12-31 18:00:01.000000000 -0600
-+++ b/src/llama-kv-cache.cpp	2026-04-25 07:06:26.109149258 -0500
+diff --git a/src/llama-kv-cache.cpp b/src/llama-kv-cache.cpp
+index 345eb7ffb..ad95b798f 100644
+--- a/src/llama-kv-cache.cpp
++++ b/src/llama-kv-cache.cpp
 @@ -1,4 +1,5 @@
  #include "llama-kv-cache.h"
 +#include "llama-triattention.h"
  
  #include "llama-impl.h"
  #include "llama-io.h"
-@@ -542,12 +543,20 @@
+@@ -542,12 +543,20 @@ llama_kv_cache::llama_kv_cache(
      debug = LLAMA_KV_CACHE_DEBUG ? atoi(LLAMA_KV_CACHE_DEBUG) : 0;
  }
  
@@ -1481,7 +1497,7 @@ index 283823fa9..33630b2bd 100644
      if (data) {
          for (auto & [_, buf] : ctxs_bufs) {
              ggml_backend_buffer_clear(buf.get(), 0);
-@@ -585,6 +594,7 @@
+@@ -585,6 +594,7 @@ bool llama_kv_cache::seq_rm(llama_seq_id seq_id, llama_pos p0, llama_pos p1) {
              }
  
              if (cells.seq_has(i, seq_id) && cells.seq_rm(i, seq_id)) {
@@ -1489,7 +1505,7 @@ index 283823fa9..33630b2bd 100644
                  if (new_head == cells.size()) {
                      new_head = i;
                  }
-@@ -609,6 +619,7 @@
+@@ -609,6 +619,7 @@ bool llama_kv_cache::seq_rm(llama_seq_id seq_id, llama_pos p0, llama_pos p1) {
                  }
  
                  cells.rm(i);
@@ -1497,7 +1513,7 @@ index 283823fa9..33630b2bd 100644
  
                  if (new_head == cells.size()) {
                      new_head = i;
-@@ -777,6 +788,9 @@
+@@ -777,6 +788,9 @@ void llama_kv_cache::seq_add(llama_seq_id seq_id, llama_pos p0, llama_pos p1, ll
      // If we freed up a slot, set head to it so searching can start there.
      // Otherwise we just start the next search from the beginning.
      head = new_head != cells.size() ? new_head : 0;
@@ -1507,7 +1523,7 @@ index 283823fa9..33630b2bd 100644
  }
  
  void llama_kv_cache::seq_div(llama_seq_id seq_id, llama_pos p0, llama_pos p1, int d) {
-@@ -1263,9 +1277,11 @@
+@@ -1263,9 +1277,11 @@ void llama_kv_cache::apply_ubatch(const slot_info & sinfo, const llama_ubatch &
                  seq_pos_max_rm[seq_id] = std::max(seq_pos_max_rm[seq_id], pos);
  
                  cells.rm(idx);
@@ -1519,7 +1535,7 @@ index 283823fa9..33630b2bd 100644
  
              if (ubatch.is_pos_2d()) {
                  llama_kv_cell_ext ext {
-@@ -1301,14 +1317,42 @@
+@@ -1301,14 +1317,42 @@ void llama_kv_cache::apply_ubatch(const slot_info & sinfo, const llama_ubatch &
          }
      }
  
@@ -1563,10 +1579,10 @@ index 283823fa9..33630b2bd 100644
  bool llama_kv_cache::get_can_shift() const {
      // Step35 uses per-layer RoPE dims; K-shift assumes a single global n_rot.
      if (model.arch == LLM_ARCH_STEP35) {
-@@ -2641,6 +2685,90 @@
-     }
- 
+@@ -2643,6 +2687,90 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
      return true;
+ }
+ 
 +//
 +// llama_kv_cache: TriAttention integration
 +//
@@ -1651,12 +1667,14 @@ index 283823fa9..33630b2bd 100644
 +    return triattention_st != nullptr;
 +}
 +
- }
- 
  //
---- a/src/llama-kv-cache.h	1969-12-31 18:00:01.000000000 -0600
-+++ b/src/llama-kv-cache.h	2026-04-25 06:57:39.422268108 -0500
-@@ -12,6 +12,8 @@
+ // llama_kv_cache_context
+ //
+diff --git a/src/llama-kv-cache.h b/src/llama-kv-cache.h
+index 34ce45b52..395a6d9be 100644
+--- a/src/llama-kv-cache.h
++++ b/src/llama-kv-cache.h
+@@ -12,6 +12,8 @@ struct llama_cparams;
  struct llama_hparams;
  struct llama_model;
  struct llama_context;
@@ -1665,7 +1683,7 @@ index 283823fa9..33630b2bd 100644
  
  //
  // llama_kv_cache
-@@ -108,7 +110,7 @@
+@@ -108,7 +110,7 @@ public:
          const layer_filter_cb & filter,
          const  layer_reuse_cb & reuse);
  
@@ -1674,7 +1692,7 @@ index 283823fa9..33630b2bd 100644
  
      //
      // llama_memory_i
-@@ -214,6 +216,22 @@
+@@ -214,6 +216,22 @@ public:
      void set_input_k_rot(ggml_tensor * dst) const;
      void set_input_v_rot(ggml_tensor * dst) const;
  
@@ -1697,7 +1715,7 @@ index 283823fa9..33630b2bd 100644
  private:
      const llama_model & model;
      const llama_hparams & hparams;
-@@ -283,6 +301,9 @@
+@@ -283,6 +301,9 @@ private:
      // model layer id -> KV cache layer id
      std::unordered_map<int32_t, int32_t> map_layer_ids;
  
@@ -1707,7 +1725,7 @@ index 283823fa9..33630b2bd 100644
      size_t total_size() const;
  
      size_t size_k_bytes() const;
-@@ -403,6 +424,7 @@
+@@ -403,6 +424,7 @@ public:
      void set_input_k_rot(ggml_tensor * dst) const;
      void set_input_v_rot(ggml_tensor * dst) const;
  
