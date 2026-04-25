@@ -24,6 +24,12 @@ effectiveStdenv.mkDerivation rec {
     hash = "sha256-kqY7cUMqe5YVkbMRNPpodO5vn3Z03BAG69VVBuvi9lM=";
   };
 
+  # TriAttention KV cache pruning (arXiv 2604.04921)
+  # Patch from atomicmilkshake/llama-cpp-turboquant — adds GPU-accelerated
+  # token eviction on top of spiritbuun's DFlash + TCQ + turbo stack.
+  # May require rebase if spiritbuun diverges significantly.
+  patches = [ ./triattention.patch ];
+
   nativeBuildInputs = with cudaPackages; [
     cmake
     git
