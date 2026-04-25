@@ -55,25 +55,20 @@ effectiveStdenv.mkDerivation rec {
     (cmakeBool "GGML_AVX512" false)
     (cmakeBool "GGML_CUDA_FA" true)
     (cmakeBool "GGML_CUDA_FA_ALL_QUANTS" true)
-    (cmakeBool "BUILD_SHARED_LIBS" true)
+    (cmakeBool "BUILD_SHARED_LIBS" false)
     # RTX 3090 = sm_86 (pure Ampere), RTX 4070 Ti = sm_89 (Ada)
     (cmakeFeature "CMAKE_CUDA_ARCHITECTURES" "86")
     (cmakeFeature "CMAKE_BUILD_TYPE" "Release")
-    (cmakeBool "CMAKE_BUILD_RPATH_USE_ORIGIN" true)
-    (cmakeBool "CMAKE_INSTALL_RPATH_USE_LINK_PATH" false)
   ];
 
-  postInstall = ''
+  installPhase = ''
+    runHook preInstall
+    mkdir -p $out/bin
     install -Dm755 bin/llama-server $out/bin/llama-server
     install -Dm755 bin/llama-cli $out/bin/llama-cli
     install -Dm755 bin/llama-perplexity $out/bin/llama-perplexity
-    find . -name "*.so*" -type f -exec install -Dm644 {} $out/lib/ \; || true
-    ln -sf $out/bin/llama-cli $out/bin/llama
-  '';
-
-  postFixup = ''
-    find $out/bin -type f -exec patchelf --shrink-rpath {} \; || true
-    find $out/lib -type f -name "*.so*" -exec patchelf --shrink-rpath {} \; || true
+    ln -sf llama-cli $out/bin/llama
+    runHook postInstall
   '';
 
   meta = {
