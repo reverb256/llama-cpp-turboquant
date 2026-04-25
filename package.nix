@@ -15,13 +15,13 @@ let
 in
 effectiveStdenv.mkDerivation rec {
   pname = "llama-cpp-turboquant";
-  version = "1.7.0";
+  version = "0.0.0-spiritbuun";
 
   src = fetchFromGitHub {
-    owner = "AmesianX";
-    repo = "TurboQuant";
-    rev = "v${version}";
-    hash = "sha256-mA8dVzsEcRHejhSeUczJoKoDGOA+iwLVUbXFW88qv/E=";
+    owner = "spiritbuun";
+    repo = "buun-llama-cpp";
+    rev = "2cc97a81c091aa6e376bf424a86c9a99214421d7";
+    hash = lib.fakeHash;
   };
 
   nativeBuildInputs = with cudaPackages; [
@@ -50,7 +50,8 @@ effectiveStdenv.mkDerivation rec {
     (cmakeBool "GGML_CUDA_FA" true)
     (cmakeBool "GGML_CUDA_FA_ALL_QUANTS" true)
     (cmakeBool "BUILD_SHARED_LIBS" true)
-    (cmakeFeature "CMAKE_CUDA_ARCHITECTURES" "86;89")
+    # RTX 3090 = sm_86 (pure Ampere), RTX 4070 Ti = sm_89 (Ada)
+    (cmakeFeature "CMAKE_CUDA_ARCHITECTURES" "86")
     (cmakeFeature "CMAKE_BUILD_TYPE" "Release")
     (cmakeBool "CMAKE_BUILD_RPATH_USE_ORIGIN" true)
     (cmakeBool "CMAKE_INSTALL_RPATH_USE_LINK_PATH" false)
@@ -70,8 +71,8 @@ effectiveStdenv.mkDerivation rec {
   '';
 
   meta = {
-    description = "llama.cpp with TurboQuant KV cache compression — TriAttention + Polar Derotate + Tangent Residual (v1.7.0)";
-    homepage = "https://github.com/AmesianX/TurboQuant";
+    description = "llama.cpp with DFlash speculative decoding + TurboQuant TCQ KV cache compression (spiritbuun fork)";
+    homepage = "https://github.com/spiritbuun/buun-llama-cpp";
     license = lib.licenses.mit;
     platforms = lib.platforms.linux;
   };
