@@ -44,11 +44,17 @@ effectiveStdenv.mkDerivation rec {
     libcublas
   ];
 
+  # Target x86-64-v3 (AVX2) — binary runs on Zen 1/2/3 + Coffee Lake
+  CFLAGS = "-march=x86-64-v3 -mtune=znver3";
+
   cmakeFlags = [
     (cmakeBool "GGML_CUDA" true)
     (cmakeBool "GGML_CUDA_F16" true)
     (cmakeBool "GGML_NATIVE" false)
-    # CPU: all cluster nodes are x86-64-v2 (AVX2, no AVX512)
+    # CPU: x86-64-v3 covers all cluster nodes
+    #   Zephyr: 5950X (Zen 3) | Nexus: 3900X (Zen 2)
+    #   Sentry: 1700X (Zen 1) | Forge: i5-9500F (Coffee Lake)
+    # All AVX2+FMA+F16C, none AVX512
     (cmakeBool "GGML_AVX2" true)
     (cmakeBool "GGML_FMA" true)
     (cmakeBool "GGML_F16C" true)
