@@ -774,7 +774,7 @@ index 000000000..01f047604
 +
 +#include "triattention-score.cuh"
 +#include "dequantize.cuh"
-+#include "turbo-quant.cuh"
++#include "turbo-quant-cuda.cuh"
 +
 +#include <cstdio>
 +#include <cstring>
