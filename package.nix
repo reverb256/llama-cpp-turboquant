@@ -21,7 +21,7 @@ effectiveStdenv.mkDerivation rec {
     owner = "spiritbuun";
     repo = "buun-llama-cpp";
     rev = "2cc97a81c091aa6e376bf424a86c9a99214421d7";
-    hash = lib.fakeHash;
+    hash = "sha256-kqY7cUMqe5YVkbMRNPpodO5vn3Z03BAG69VVBuvi9lM=";
   };
 
   nativeBuildInputs = with cudaPackages; [
