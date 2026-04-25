@@ -20,8 +20,8 @@ effectiveStdenv.mkDerivation rec {
   src = fetchFromGitHub {
     owner = "spiritbuun";
     repo = "buun-llama-cpp";
-    rev = "2cc97a81c091aa6e376bf424a86c9a99214421d7";
-    hash = "sha256-kqY7cUMqe5YVkbMRNPpodO5vn3Z03BAG69VVBuvi9lM=";
+    rev = "9a388b52e";
+    hash = "sha256-NJ/mohG3uie4Kw+ciItk/havGjXxNGSljTjq+32FNH4=";
   };
 
   # TriAttention KV cache pruning (arXiv 2604.04921)
