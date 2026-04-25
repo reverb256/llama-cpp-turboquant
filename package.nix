@@ -15,7 +15,7 @@ let
 in
 effectiveStdenv.mkDerivation rec {
   pname = "llama-cpp-turboquant";
-  version = "0.0.0-spiritbuun";
+  version = "0.0.1-spiritbuun-triattention";
 
   src = fetchFromGitHub {
     owner = "spiritbuun";
