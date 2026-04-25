@@ -774,7 +774,7 @@ index 000000000..01f047604
 +
 +#include "triattention-score.cuh"
 +#include "dequantize.cuh"
-+#include "turbo-quant-cuda.cuh"
++#include "turbo-quant.cuh"
 +
 +#include <cstdio>
 +#include <cstring>
@@ -831,16 +831,16 @@ index 000000000..01f047604
 +
 +static __device__ void inverse_wht_rotation_128(float * smem, int tid) {
 +    // Step 1: multiply by signs2
-+    smem[tid * 2]     *= d_turbo_wht_signs2[tid * 2];
-+    smem[tid * 2 + 1] *= d_turbo_wht_signs2[tid * 2 + 1];
++    smem[tid * 2]     *= TURBO_WHT_SIGNS2[tid * 2];
++    smem[tid * 2 + 1] *= TURBO_WHT_SIGNS2[tid * 2 + 1];
 +    __syncthreads();
 +
 +    // Step 2: FWHT (cooperative)
 +    cooperative_fwht_128(smem, tid);
 +
 +    // Step 3: multiply by signs1
-+    smem[tid * 2]     *= d_turbo_wht_signs1[tid * 2];
-+    smem[tid * 2 + 1] *= d_turbo_wht_signs1[tid * 2 + 1];
++    smem[tid * 2]     *= TURBO_WHT_SIGNS1[tid * 2];
++    smem[tid * 2 + 1] *= TURBO_WHT_SIGNS1[tid * 2 + 1];
 +    __syncthreads();
 +}
 +
@@ -882,10 +882,8 @@ index 000000000..01f047604
 +        const int blk = (tid * 2) / QK_TURBO4;
 +        const int off = (tid * 2) % QK_TURBO4;
 +        const float norm = __half2float(x[blk].norm);
-+        smem[tid * 2]     = ((tid*2) & 1 ? (x[blk].qs[(tid*2) % QK_TURBO4 / 2] >> 4) : (x[blk].qs[(tid*2) % QK_TURBO4 / 2] & 0xF));
-+        smem[tid * 2]     = d_turbo_centroids_4bit[(int)smem[tid * 2]] * norm;
-+        smem[tid * 2 + 1] = ((tid*2+1) & 1 ? (x[blk].qs[(tid*2+1) % QK_TURBO4 / 2] >> 4) : (x[blk].qs[(tid*2+1) % QK_TURBO4 / 2] & 0xF));
-+        smem[tid * 2 + 1] = d_turbo_centroids_4bit[(int)smem[tid * 2 + 1]] * norm;
++        smem[tid * 2]     = turbo4_dequant_element(&x[blk], off,     norm);
++        smem[tid * 2 + 1] = turbo4_dequant_element(&x[blk], off + 1, norm);
 +    } else if constexpr (K_TYPE == GGML_TYPE_TURBO3_0) {
 +        // turbo3: block_size=32, returns WHT-rotated values
 +        const block_turbo3_0 * x = (const block_turbo3_0 *)k_row_ptr;
@@ -895,12 +893,8 @@ index 000000000..01f047604
 +        const int blk1 = el1 / QK_TURBO3;
 +        const int off0 = el0 % QK_TURBO3;
 +        const int off1 = el1 % QK_TURBO3;
-+        const uint8_t low2_0 = (x[blk0].qs[off0/4] >> ((off0%4)*2)) & 0x3;
-+        const uint8_t hi1_0  = (x[blk0].signs[off0/8] >> (off0%8)) & 0x1;
-+        smem[el0] = d_turbo_centroids_3bit[low2_0 | (hi1_0 << 2)] * __half2float(x[blk0].norm);
-+        const uint8_t low2_1 = (x[blk1].qs[off1/4] >> ((off1%4)*2)) & 0x3;
-+        const uint8_t hi1_1  = (x[blk1].signs[off1/8] >> (off1%8)) & 0x1;
-+        smem[el1] = d_turbo_centroids_3bit[low2_1 | (hi1_1 << 2)] * __half2float(x[blk1].norm);
++        smem[el0] = turbo3_dequant_element(&x[blk0], off0, __half2float(x[blk0].norm));
++        smem[el1] = turbo3_dequant_element(&x[blk1], off1, __half2float(x[blk1].norm));
 +    } else if constexpr (K_TYPE == GGML_TYPE_TURBO2_0) {
 +        // turbo2: block_size=32, returns WHT-rotated values
 +        const block_turbo2_0 * x = (const block_turbo2_0 *)k_row_ptr;
@@ -910,10 +904,8 @@ index 000000000..01f047604
 +        const int blk1 = el1 / QK_TURBO2;
 +        const int off0 = el0 % QK_TURBO2;
 +        const int off1 = el1 % QK_TURBO2;
-+        const uint8_t idx0 = (x[blk0].qs[off0/4] >> ((off0%4)*2)) & 0x3;
-+        smem[el0] = d_turbo_centroids_2bit[idx0] * __half2float(x[blk0].norm);
-+        const uint8_t idx1 = (x[blk1].qs[off1/4] >> ((off1%4)*2)) & 0x3;
-+        smem[el1] = d_turbo_centroids_2bit[idx1] * __half2float(x[blk1].norm);
++        smem[el0] = turbo2_dequant_element(&x[blk0], off0, __half2float(x[blk0].norm));
++        smem[el1] = turbo2_dequant_element(&x[blk1], off1, __half2float(x[blk1].norm));
 +    }
 +}
 +
