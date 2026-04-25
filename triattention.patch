@@ -143,10 +143,9 @@ index 59d75a3b9..45d9c0bda 100644
  }
  
 diff --git a/common/common.h b/common/common.h
-index 62201ea1a..5ca50f77c 100644
 --- a/common/common.h
 +++ b/common/common.h
-@@ -675,6 +675,21 @@ struct common_params {
+@@ -701,6 +701,21 @@
      // return false from callback to abort model loading or true to continue
      llama_progress_callback load_progress_callback = NULL;
      void *                  load_progress_callback_user_data = NULL;
@@ -165,9 +164,9 @@ index 62201ea1a..5ca50f77c 100644
 +    bool        triattention_disable_mlr  = false;  // ablation: disable MLR weighting
 +    bool        triattention_disable_trig = false;  // ablation: norm-only scoring
 +    bool        triattention_log          = false;  // log pruning events to stderr
+     bool no_alloc = false; // Don't allocate model buffers
  };
  
- // call once at the start of a program if it uses libcommon
 diff --git a/docs/TRIATTENTION-API.md b/docs/TRIATTENTION-API.md
 new file mode 100644
 index 000000000..eb1b1a378
@@ -1379,24 +1378,24 @@ index 283823fa9..33630b2bd 100644
              llama-memory-hybrid.cpp
              llama-memory-hybrid-iswa.cpp
              llama-memory-recurrent.cpp
-diff --git a/src/llama-context.cpp b/src/llama-context.cpp
-index 28073f184..a16ebe8f6 100644
---- a/src/llama-context.cpp
-+++ b/src/llama-context.cpp
-@@ -4,10 +4,12 @@
+--- a/src/llama-context.cpp	1969-12-31 18:00:01.000000000 -0600
++++ b/src/llama-context.cpp	2026-04-25 06:55:05.681725368 -0500
+@@ -4,12 +4,14 @@
  #include "llama-impl.h"
  #include "llama-batch.h"
  #include "llama-io.h"
 +#include "llama-kv-cache.h"
  #include "llama-memory.h"
+ #include "llama-memory-recurrent.h"
+ #include "llama-memory-hybrid.h"
  #include "llama-mmap.h"
  #include "llama-model.h"
  #include "llama-ext.h"
 +#include "llama-triattention.h"
  
- #include <cinttypes>
- #include <cmath>
-@@ -3323,6 +3325,56 @@ bool llama_memory_can_shift(llama_memory_t mem) {
+ #include "ggml-alloc.h"
+ 
+@@ -4527,6 +4529,56 @@
      return mem->get_can_shift();
  }
  
@@ -1453,41 +1452,15 @@ index 28073f184..a16ebe8f6 100644
  // llama state API
  
  // deprecated
-diff --git a/src/llama-kv-cache.cpp b/src/llama-kv-cache.cpp
-index d5abb82e4..7164b8817 100644
---- a/src/llama-kv-cache.cpp
-+++ b/src/llama-kv-cache.cpp
+--- a/src/llama-kv-cache.cpp	1969-12-31 18:00:01.000000000 -0600
++++ b/src/llama-kv-cache.cpp	2026-04-25 07:06:26.109149258 -0500
 @@ -1,4 +1,5 @@
  #include "llama-kv-cache.h"
 +#include "llama-triattention.h"
  
  #include "llama-impl.h"
  #include "llama-io.h"
-@@ -20,17 +21,12 @@
- #define INNERQ_MAX_CHANNELS 128
- #endif
- 
--#ifdef GGML_USE_CUDA
--extern bool  g_innerq_finalized;
--extern float g_innerq_scale_inv_host[INNERQ_MAX_CHANNELS];
--extern bool turbo_innerq_needs_tensor_update(void);
--extern void turbo_innerq_mark_tensor_updated(void);
--#else
--static bool  g_innerq_finalized = false;
--static float g_innerq_scale_inv_host[INNERQ_MAX_CHANNELS] = {};
--static bool turbo_innerq_needs_tensor_update(void) { return false; }
--static void turbo_innerq_mark_tensor_updated(void) {}
--#endif
-+extern "C" {
-+GGML_API bool  g_innerq_finalized;
-+GGML_API float g_innerq_scale_inv_host[INNERQ_MAX_CHANNELS];
-+GGML_API int   turbo_innerq_needs_tensor_update(void);
-+GGML_API void  turbo_innerq_mark_tensor_updated(void);
-+}
- 
- //
- // llama_kv_cache
-@@ -364,12 +360,20 @@ llama_kv_cache::llama_kv_cache(
+@@ -542,12 +543,20 @@
      debug = LLAMA_KV_CACHE_DEBUG ? atoi(LLAMA_KV_CACHE_DEBUG) : 0;
  }
  
@@ -1508,7 +1481,7 @@ index d5abb82e4..7164b8817 100644
      if (data) {
          for (auto & [_, buf] : ctxs_bufs) {
              ggml_backend_buffer_clear(buf.get(), 0);
-@@ -414,6 +418,7 @@ bool llama_kv_cache::seq_rm(llama_seq_id seq_id, llama_pos p0, llama_pos p1) {
+@@ -585,6 +594,7 @@
              }
  
              if (cells.seq_has(i, seq_id) && cells.seq_rm(i, seq_id)) {
@@ -1516,7 +1489,7 @@ index d5abb82e4..7164b8817 100644
                  if (new_head == cells.size()) {
                      new_head = i;
                  }
-@@ -438,6 +443,7 @@ bool llama_kv_cache::seq_rm(llama_seq_id seq_id, llama_pos p0, llama_pos p1) {
+@@ -609,6 +619,7 @@
                  }
  
                  cells.rm(i);
@@ -1524,7 +1497,7 @@ index d5abb82e4..7164b8817 100644
  
                  if (new_head == cells.size()) {
                      new_head = i;
-@@ -606,6 +612,9 @@ void llama_kv_cache::seq_add(llama_seq_id seq_id, llama_pos p0, llama_pos p1, ll
+@@ -777,6 +788,9 @@
      // If we freed up a slot, set head to it so searching can start there.
      // Otherwise we just start the next search from the beginning.
      head = new_head != cells.size() ? new_head : 0;
@@ -1534,12 +1507,11 @@ index d5abb82e4..7164b8817 100644
  }
  
  void llama_kv_cache::seq_div(llama_seq_id seq_id, llama_pos p0, llama_pos p1, int d) {
-@@ -1091,10 +1100,12 @@ void llama_kv_cache::apply_ubatch(const slot_info & sinfo, const llama_ubatch &
- 
+@@ -1263,9 +1277,11 @@
                  seq_pos_max_rm[seq_id] = std::max(seq_pos_max_rm[seq_id], pos);
  
-+                triattention_on_cell_removed(triattention_st, idx);
                  cells.rm(idx);
++                triattention_on_cell_removed(triattention_st, idx);
              }
  
              cells.pos_set(idx, ubatch.pos[i]);
@@ -1547,11 +1519,19 @@ index d5abb82e4..7164b8817 100644
  
              if (ubatch.is_pos_2d()) {
                  llama_kv_cell_ext ext {
-@@ -1136,6 +1147,34 @@ void llama_kv_cache::apply_ubatch(const slot_info & sinfo, const llama_ubatch &
+@@ -1301,14 +1317,42 @@
+         }
+     }
+ 
++
+     // move the head at the end of the slot
+     for (uint32_t s = 0; s < sinfo.n_stream(); ++s) {
+         auto & head = v_heads[sinfo.strm[s]];
  
          head = sinfo.idxs[s].back() + 1;
      }
-+
+-}
+ 
 +    // TriAttention: set prefix length and check if pruning should trigger
 +    if (triattention_st != nullptr) {
 +        // Set prefix_length once on the first prompt batch (contains position 0, >1 token).
@@ -1579,13 +1559,14 @@ index d5abb82e4..7164b8817 100644
 +            triattention_try_prune();
 +        }
 +    }
- }
- 
++}
  bool llama_kv_cache::get_can_shift() const {
-@@ -2379,6 +2418,90 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
-     return true;
- }
+     // Step35 uses per-layer RoPE dims; K-shift assumes a single global n_rot.
+     if (model.arch == LLM_ARCH_STEP35) {
+@@ -2641,6 +2685,90 @@
+     }
  
+     return true;
 +//
 +// llama_kv_cache: TriAttention integration
 +//
@@ -1670,14 +1651,12 @@ index d5abb82e4..7164b8817 100644
 +    return triattention_st != nullptr;
 +}
 +
+ }
+ 
  //
- // llama_kv_cache_context
- //
-diff --git a/src/llama-kv-cache.h b/src/llama-kv-cache.h
-index 3f2009265..91e3162fe 100644
---- a/src/llama-kv-cache.h
-+++ b/src/llama-kv-cache.h
-@@ -12,6 +12,8 @@ struct llama_cparams;
+--- a/src/llama-kv-cache.h	1969-12-31 18:00:01.000000000 -0600
++++ b/src/llama-kv-cache.h	2026-04-25 06:57:39.422268108 -0500
+@@ -12,6 +12,8 @@
  struct llama_hparams;
  struct llama_model;
  struct llama_context;
@@ -1686,7 +1665,7 @@ index 3f2009265..91e3162fe 100644
  
  //
  // llama_kv_cache
-@@ -108,7 +110,7 @@ class llama_kv_cache : public llama_memory_i {
+@@ -108,7 +110,7 @@
          const layer_filter_cb & filter,
          const  layer_reuse_cb & reuse);
  
@@ -1695,9 +1674,9 @@ index 3f2009265..91e3162fe 100644
  
      //
      // llama_memory_i
-@@ -208,6 +210,22 @@ class llama_kv_cache : public llama_memory_i {
-     void set_input_kq_mask   (ggml_tensor * dst, const llama_ubatch * ubatch, bool causal_attn) const;
-     void set_input_pos_bucket(ggml_tensor * dst, const llama_ubatch * ubatch) const;
+@@ -214,6 +216,22 @@
+     void set_input_k_rot(ggml_tensor * dst) const;
+     void set_input_v_rot(ggml_tensor * dst) const;
  
 +    //
 +    // TriAttention KV cache eviction
@@ -1718,7 +1697,7 @@ index 3f2009265..91e3162fe 100644
  private:
      const llama_model & model;
      const llama_hparams & hparams;
-@@ -268,6 +286,9 @@ class llama_kv_cache : public llama_memory_i {
+@@ -283,6 +301,9 @@
      // model layer id -> KV cache layer id
      std::unordered_map<int32_t, int32_t> map_layer_ids;
  
@@ -1728,6 +1707,14 @@ index 3f2009265..91e3162fe 100644
      size_t total_size() const;
  
      size_t size_k_bytes() const;
+@@ -403,6 +424,7 @@
+     void set_input_k_rot(ggml_tensor * dst) const;
+     void set_input_v_rot(ggml_tensor * dst) const;
+ 
++
+ private:
+     llama_memory_status status;
+ 
 diff --git a/src/llama-triattention.cpp b/src/llama-triattention.cpp
 new file mode 100644
 index 000000000..651a25404
