@@ -15,22 +15,20 @@ let
 in
 effectiveStdenv.mkDerivation rec {
   pname = "llama-cpp-turboquant";
-  version = "0.0.1-spiritbuun-triattention";
+  version = "0.0.3-spiritbuun-aecbbd5da";
 
   src = fetchFromGitHub {
     owner = "spiritbuun";
     repo = "buun-llama-cpp";
-    rev = "9a388b52e";
-    hash = "sha256-NJ/mohG3uie4Kw+ciItk/havGjXxNGSljTjq+32FNH4=";
+    rev = "aecbbd5da";
+    hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
   };
 
-  # TriAttention KV cache pruning (arXiv 2604.04921)
-  # Patch from atomicmilkshake/llama-cpp-turboquant — adds GPU-accelerated
-  # token eviction on top of spiritbuun's DFlash + TCQ + turbo stack.
-  # Applied via postPatch because fetchpatch mangles large patches.
-  postPatch = ''
-    patch -p1 < ${./triattention.patch}
-  '';
+  # TriAttention patch temporarily disabled — needs rebase onto 325+ upstream commits.
+  # Will re-implement after baseline build is verified.
+  # postPatch = ''
+  #   patch -p1 < ${./triattention.patch}
+  # '';
 
   nativeBuildInputs = with cudaPackages; [
     cmake
@@ -67,6 +65,7 @@ effectiveStdenv.mkDerivation rec {
     # Prevents symbol conflicts with system ggml (missing spiritbuun quant symbols)
     (cmakeBool "BUILD_SHARED_LIBS" false)
     # RTX 3090 = sm_86 (pure Ampere), RTX 4070 Ti = sm_89 (Ada)
+    # RTX 3060 Ti = sm_86 (Ampere) — both zephyr GPUs are sm_86
     (cmakeFeature "CMAKE_CUDA_ARCHITECTURES" "86")
     (cmakeFeature "CMAKE_BUILD_TYPE" "Release")
     # Link ggml-cuda statically — avoids runtime symbol lookup from system libggml.so
