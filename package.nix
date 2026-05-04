@@ -21,7 +21,7 @@ effectiveStdenv.mkDerivation rec {
     owner = "spiritbuun";
     repo = "buun-llama-cpp";
     rev = "aecbbd5da";
-    hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+    hash = "sha256-hXWS2R5GuRPTgmci4OxLkBNbmEHH84TmOhdeVYEnocM=";
   };
 
   # TriAttention patch temporarily disabled — needs rebase onto 325+ upstream commits.
