@@ -2961,7 +2961,7 @@ private:
                     // data"). if no sidecar exists (state saved by an older build), fall back
                     // to synthesizing a tip checkpoint from the just-restored state, which at
                     // least covers exact continuations.
-                    if (params_base.n_ctx_checkpoints > 0 && token_count > 0) {
+                    if (params_base.n_ctx_checkpoints > 0 && slot->prompt.tokens.size() > 0) {
                         if (checkpoints_load_sidecar(slot->prompt.checkpoints, filepath + ".ckpt")) {
                             SLT_INF(*slot, "restored %zu context checkpoints from sidecar\n", slot->prompt.checkpoints.size());
                         } else {
@@ -3780,8 +3780,6 @@ private:
                         return;
                     }
 
-                    const int64_t t_now = ggml_time_us();
-                    slot.t_prompt_processing = (t_now - slot.t_start_process_prompt) / 1e3;
                     slot.print_timings_pp();
 
                     // truncate any tokens that are beyond n_past for this slot
@@ -3947,7 +3945,6 @@ private:
                         // extract the logits only for the last token
                         batch.set_output(batch.size() - 1, true);
 
-                        slot.n_decoded = 0;
                         slot.i_batch   = batch.size() - 1;
                         slot.prompt_checkpoint_restored = false;
 
