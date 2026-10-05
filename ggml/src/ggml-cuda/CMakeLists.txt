@@ -126,6 +126,9 @@ if (CUDAToolkit_FOUND)
 
     ggml_cuda_fattn_vec_instances(${CMAKE_CURRENT_SOURCE_DIR} SRCS)
     list(APPEND GGML_SOURCES_CUDA ${SRCS})
+    # TurboQuant KV (fork addition): also compile the turbo FA vec template instances
+    file(GLOB   TQ_VEC_SRCS "template-instances/fattn-vec-instance-*turbo*.cu")
+    list(APPEND GGML_SOURCES_CUDA ${TQ_VEC_SRCS})
 
     ggml_add_backend_library(ggml-cuda
                              ${GGML_HEADERS_CUDA}
@@ -206,7 +209,8 @@ if (CUDAToolkit_FOUND)
         # - speed (nvcc's default)
         # - balance
         # - size
-        list(APPEND CUDA_FLAGS -compress-mode=${GGML_CUDA_COMPRESSION_MODE})
+        # Disabled: -compress-mode causes issues with GCC 12 host compiler
+        # list(APPEND CUDA_FLAGS -compress-mode=${GGML_CUDA_COMPRESSION_MODE})
     endif()
 
     if (GGML_FATAL_WARNINGS)
